@@ -4,6 +4,9 @@
   "description": "Genera entradas de sweepstakes (con ID unico y nombre del cliente) a partir de pedidos pagados en Shopify",
   "main": "src/server.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "draw": "node scripts/drawWinner.js"
@@ -11,6 +14,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "googleapis": "^173.0.0",
     "uuid": "^11.0.0"
   }
 }

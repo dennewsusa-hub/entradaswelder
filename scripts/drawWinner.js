@@ -4,6 +4,7 @@
 //
 // Uso: node scripts/drawWinner.js [--count=1]
 
+require("dotenv").config();
 const db = require("../src/db");
 
 function parseCount(argv) {
@@ -11,8 +12,8 @@ function parseCount(argv) {
   return arg ? parseInt(arg.split("=")[1], 10) : 1;
 }
 
-function drawWinners(count) {
-  const entries = db.getAllEntries();
+async function drawWinners(count) {
+  const entries = await db.getAllEntries();
   if (entries.length === 0) {
     throw new Error("No hay entradas registradas todavia.");
   }
@@ -32,19 +33,22 @@ function drawWinners(count) {
 
 if (require.main === module) {
   const count = parseCount(process.argv.slice(2));
-  try {
-    const winners = drawWinners(count);
-    console.log(`Total de entradas en el sorteo: ${db.getAllEntries().length}`);
-    console.log(`Ganador(es):`);
-    for (const w of winners) {
-      console.log(
-        `  #${w.entryNumber} - ${w.customerName} (${w.customerEmail || "sin email"}) - id ${w.id} - origen: ${w.source}`
-      );
+  (async () => {
+    try {
+      const winners = await drawWinners(count);
+      const total = await db.getAllEntries();
+      console.log(`Total de entradas en el sorteo: ${total.length}`);
+      console.log(`Ganador(es):`);
+      for (const w of winners) {
+        console.log(
+          `  #${w.entryNumber} - ${w.customerName} (${w.customerEmail || "sin email"}) - id ${w.id} - origen: ${w.source}`
+        );
+      }
+    } catch (err) {
+      console.error(err.message);
+      process.exit(1);
     }
-  } catch (err) {
-    console.error(err.message);
-    process.exit(1);
-  }
+  })();
 }
 
 module.exports = { drawWinners };

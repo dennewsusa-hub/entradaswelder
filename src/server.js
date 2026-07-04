@@ -25,7 +25,7 @@ function requireAdmin(req, res, next) {
 app.post(
   "/webhooks/orders-paid",
   express.raw({ type: "application/json" }),
-  (req, res) => {
+  async (req, res) => {
     const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
     const isValid = verifyShopifyWebhook(req.body, hmacHeader, WEBHOOK_SECRET);
 
@@ -40,17 +40,22 @@ app.post(
       return res.status(400).send("invalid json");
     }
 
-    const result = generateEntriesForOrder(order);
-
-    // Shopify solo espera un 200 rapido; reintenta si no lo recibe.
-    res.status(200).json({ ok: true, createdCount: result.created.length, skipped: !!result.skipped });
+    try {
+      const result = await generateEntriesForOrder(order);
+      res.status(200).json({ ok: true, createdCount: result.created.length, skipped: !!result.skipped });
+    } catch (err) {
+      // 500 hace que Shopify reintente el webhook mas tarde; hasEntriesForOrder
+      // evita duplicar entradas cuando el reintento si tenga exito.
+      console.error("Error procesando webhook orders/paid:", err);
+      res.status(500).json({ ok: false, error: "internal_error" });
+    }
   }
 );
 
 // --- AMOE: entrada gratuita sin compra -----------------------------------
 // Apagado por defecto (ver README, seccion "Aviso legal"). Cuando lo actives,
 // esta ruta debe quedar enlazada desde un formulario publico accesible sin comprar.
-app.post("/entries/free", express.json(), (req, res) => {
+app.post("/entries/free", express.json(), async (req, res) => {
   if (!ENABLE_FREE_ENTRY) {
     return res.status(404).json({ error: "not_enabled" });
   }
@@ -60,7 +65,7 @@ app.post("/entries/free", express.json(), (req, res) => {
     return res.status(400).json({ error: "name_required" });
   }
 
-  const [entry] = db.addEntries([
+  const [entry] = await db.addEntries([
     {
       id: uuidv4(),
       orderId: null,
@@ -78,16 +83,16 @@ app.post("/entries/free", express.json(), (req, res) => {
 });
 
 // --- Admin: consulta y export de entradas --------------------------------
-app.get("/admin/entries", requireAdmin, (req, res) => {
-  res.json(db.getAllEntries());
+app.get("/admin/entries", requireAdmin, async (req, res) => {
+  res.json(await db.getAllEntries());
 });
 
-app.get("/admin/entries/:orderId", requireAdmin, (req, res) => {
-  res.json(db.getEntriesByOrderId(req.params.orderId));
+app.get("/admin/entries/:orderId", requireAdmin, async (req, res) => {
+  res.json(await db.getEntriesByOrderId(req.params.orderId));
 });
 
-app.get("/admin/entries.csv", requireAdmin, (req, res) => {
-  const entries = db.getAllEntries();
+app.get("/admin/entries.csv", requireAdmin, async (req, res) => {
+  const entries = await db.getAllEntries();
   const header = "entryNumber,id,orderName,customerName,customerEmail,source,grantReason,createdAt";
   const rows = entries.map((e) =>
     [e.entryNumber, e.id, e.orderName, e.customerName, e.customerEmail, e.source, e.grantReason, e.createdAt]
@@ -100,6 +105,13 @@ app.get("/admin/entries.csv", requireAdmin, (req, res) => {
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.listen(PORT, () => {
-  console.log(`Sweepstakes service escuchando en puerto ${PORT}`);
-});
+db.ensureSchema()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Sweepstakes service escuchando en puerto ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("No se pudo inicializar el esquema de la base de datos:", err);
+    process.exit(1);
+  });

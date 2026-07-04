@@ -13,12 +13,10 @@ function resolveCustomerName(order) {
 }
 
 // Idempotente: si el pedido ya genero entradas (ej. Shopify reintento el webhook), no duplica.
-function generateEntriesForOrder(order) {
+// La verificacion y la escritura quedan atadas en db.addEntriesIfNew para que
+// dos entregas concurrentes del mismo webhook no generen entradas duplicadas.
+async function generateEntriesForOrder(order) {
   const orderId = String(order.id);
-
-  if (db.hasEntriesForOrder(orderId)) {
-    return { created: [], skipped: true, reason: "order_already_processed" };
-  }
 
   const grants = evaluateOrder(order);
   if (grants.length === 0) {
@@ -46,8 +44,8 @@ function generateEntriesForOrder(order) {
     }
   }
 
-  const created = db.addEntries(entriesToCreate);
-  return { created, skipped: false };
+  const { created, skipped } = await db.addEntriesIfNew(orderId, entriesToCreate);
+  return { created, skipped, reason: skipped ? "order_already_processed" : undefined };
 }
 
 module.exports = { generateEntriesForOrder, resolveCustomerName };
