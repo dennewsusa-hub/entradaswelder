@@ -80,26 +80,37 @@ Productos → abre el producto → el ID aparece en la URL
 (`admin/products/<product_id>`); para variantes, en el Admin API o
 inspeccionando el JSON del producto.
 
-## Configurar el custom app en Shopify (plan Basic)
+## Configurar la app en Shopify (Dev Dashboard)
 
-El plan Basic sí permite crear **custom apps** con acceso a la Admin API —
-no necesitas subir nada al App Store.
+Shopify retiró el flujo legacy de "custom apps" (Settings → Apps and sales
+channels → Develop apps) — ahora todo pasa por **Dev Dashboard**
+(`dev.shopify.com/dashboard`), incluso para una app privada de una sola
+tienda como esta.
 
-1. Shopify Admin → **Settings → Apps and sales channels → Develop apps**.
-2. **Create an app**, dale un nombre (ej. "Sweepstakes entries").
-3. En **Configuration → Admin API scopes**, no necesitas scopes de lectura
-   especiales para *recibir* el webhook (el payload ya trae line items y
-   customer). Si luego quieres consultar tags de producto, agrega
-   `read_products`.
-4. Pestaña **API credentials** → copia el **Client secret**. Ese valor va en
+1. Desde el admin de la tienda → **Settings → Apps → App development** →
+   **Build apps in Dev Dashboard**.
+2. Crea la app (o usa la que ya tengas) y crea una nueva **version**:
+   - **App URL**: la URL de tu servicio en Render (si todavía no lo
+     desplegaste, pon un placeholder y actualízalo después — Shopify no
+     valida que responda en este paso).
+   - **Embed app in Shopify admin**: **desmárcalo**. Este servicio no tiene
+     ninguna pantalla embebida en el admin, solo recibe webhooks.
+   - **Preferences URL**: vacío.
+   - **Webhooks API version**: deja la más reciente.
+   - Click **Release** para activar la versión.
+3. En **Settings** de la app → busca las **API credentials / Client
+   credentials** → copia el **Client secret**. Ese valor va en
    `SHOPIFY_WEBHOOK_SECRET` en tu `.env`.
-5. Instala la app en la tienda (botón **Install app**).
-6. Crea el webhook apuntando a tu servidor público (ver despliegue abajo):
+4. Instala la app en la tienda (debería quedar instalada automáticamente al
+   crear la versión en una tienda de desarrollo propia, o pide instalación
+   manual si es la tienda de producción del cliente).
+5. Crea el webhook `orders/paid` apuntando a tu servidor público:
    - Vía Admin API (GraphQL `webhookSubscriptionCreate` o REST
-     `POST /admin/api/2024-XX/webhooks.json`), topic `orders/paid`, formato
-     `json`, `address: https://TU-DOMINIO/webhooks/orders-paid`.
-   - O vía **Settings → Notifications → Webhooks** en el admin (interfaz
-     legada, mismo resultado).
+     `POST /admin/api/2024-XX/webhooks.json`), formato `json`,
+     `address: https://TU-DOMINIO/webhooks/orders-paid`.
+   - O vía **Settings → Notifications → Webhooks** en el admin de la
+     tienda (interfaz legada de webhooks, sigue funcionando igual aunque
+     la creación de apps haya cambiado).
 
 ## Configurar Google Sheets (almacenamiento)
 
