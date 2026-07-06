@@ -15,6 +15,10 @@ const HEADER = [
   "createdAt",
 ];
 
+// Pestaña donde el cliente configura cuantas entradas da cada producto.
+const RULES_SHEET = process.env.SWEEPSTAKES_RULES_SHEET || "rules";
+const RULES_HEADER = ["productTitle", "entriesPerUnit"];
+
 function getSheetsClient() {
   const auth = new google.auth.JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -26,21 +30,68 @@ function getSheetsClient() {
 
 const sheets = getSheetsClient();
 
-async function ensureSchema() {
+async function listSheetTitles() {
+  const { data } = await sheets.spreadsheets.get({
+    spreadsheetId: SPREADSHEET_ID,
+    fields: "sheets.properties.title",
+  });
+  return (data.sheets || []).map((s) => s.properties.title);
+}
+
+async function ensureSheetExists(title) {
+  const titles = await listSheetTitles();
+  if (!titles.includes(title)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SPREADSHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+    });
+  }
+}
+
+async function ensureHeader(sheetName, header) {
+  const lastCol = String.fromCharCode("A".charCodeAt(0) + header.length - 1);
   const { data } = await sheets.spreadsheets.values.get({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A1:J1`,
+    range: `${sheetName}!A1:${lastCol}1`,
   });
-  const currentHeader = (data.values && data.values[0]) || [];
-  const matches = HEADER.every((h, i) => currentHeader[i] === h);
+  const current = (data.values && data.values[0]) || [];
+  const matches = header.every((h, i) => current[i] === h);
   if (!matches) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A1:J1`,
+      range: `${sheetName}!A1:${lastCol}1`,
       valueInputOption: "RAW",
-      requestBody: { values: [HEADER] },
+      requestBody: { values: [header] },
     });
   }
+}
+
+async function ensureSchema() {
+  await ensureSheetExists(SHEET_NAME);
+  await ensureHeader(SHEET_NAME, HEADER);
+  await ensureSheetExists(RULES_SHEET);
+  await ensureHeader(RULES_SHEET, RULES_HEADER);
+}
+
+// Lee la pestaña de reglas y devuelve un Map de nombre-de-producto (normalizado
+// a minusculas y sin espacios extra) -> entradas por unidad. El matching es
+// tolerante a mayusculas/espacios para reducir errores del cliente.
+async function getProductRules() {
+  const { data } = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${RULES_SHEET}!A2:B`,
+  });
+  const rows = data.values || [];
+  const map = new Map();
+  for (const row of rows) {
+    const title = (row[0] || "").trim().toLowerCase();
+    if (!title) continue;
+    const perUnit = parseInt(row[1], 10);
+    if (!Number.isNaN(perUnit) && perUnit > 0) {
+      map.set(title, perUnit);
+    }
+  }
+  return map;
 }
 
 // entryNumber sale de la posicion de la fila (fila 2 = entrada #1), no de un
@@ -141,4 +192,5 @@ module.exports = {
   hasEntriesForOrder,
   addEntries,
   addEntriesIfNew,
+  getProductRules,
 };

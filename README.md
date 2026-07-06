@@ -31,8 +31,9 @@ compra o vuelves a caer en el problema de "consideracion".
 ## Como funciona
 
 1. Shopify envia un webhook `orders/paid` a este servicio.
-2. `src/rules.js` lee `rules.json` y decide cuantas entradas corresponden
-   segun el `product_id`, `variant_id` o la cantidad total del pedido.
+2. `src/rules.js` lee la pestaña `rules` del Google Sheet (nombre de producto
+   → entradas por unidad) y, por cada producto del pedido que aparezca ahi,
+   multiplica ese valor por la cantidad comprada.
 3. `src/tickets.js` genera una entrada individual (UUID + numero secuencial)
    por cada "boleta" ganada, con el nombre y email del cliente.
 4. Todo se guarda en una hoja de Google Sheets (pestaña `entries`, ver
@@ -40,45 +41,34 @@ compra o vuelves a caer en el problema de "consideracion".
 5. `/admin/entries` y `/admin/entries.csv` permiten consultarlas, o abres la
    hoja directamente desde Google Sheets.
 
-## Configurar las reglas (`rules.json`)
+## Configurar que productos dan entradas (pestaña `rules`)
 
-No requiere tocar codigo, solo editar el JSON:
+El cliente controla todo desde el mismo Google Sheet, sin tocar codigo, sin
+buscar IDs y sin Admin API de Shopify. La configuracion vive en una pestaña
+llamada `rules` (el servicio la crea sola al arrancar si no existe).
 
-```json
-{
-  "byProductId": { "1234567890123": 1 },
-  "byVariantId": { "9876543210987": 2 },
-  "productQuantityTiers": { "1111111111111": { "1": 20 }, "2222222222222": { "1": 100 } },
-  "variantQuantityTiers": {},
-  "quantityTiers": { "3": 1, "5": 3, "10": 8 }
-}
-```
+La pestaña tiene dos columnas:
 
-Hay dos formas de calcular entradas por producto/variante, y son distintas:
+| productTitle              | entriesPerUnit |
+| ------------------------- | -------------- |
+| Casco de soldar automatico | 1              |
+| Combo soldador PRO         | 20             |
 
-- `byProductId` / `byVariantId` — **lineal**: entradas por cada unidad
-  comprada. Comprar 3 unidades de un producto con valor `5` da 15 entradas
-  (5 × 3). `byVariantId` tiene prioridad si ambos matchean.
-- `productQuantityTiers` / `variantQuantityTiers` — **plano, no lineal**:
-  el numero es el TOTAL de entradas para ese tramo de cantidad, no se
-  multiplica. Es el modelo tipo "Silver ticket = 20 entradas", "Gold = 100
-  entradas" que se ve en paginas de giveaway de productos por SKU (cada
-  ticket es su propio producto). Si defines varios tramos, ej.
-  `{ "1": 20, "3": 70 }`, comprar 1 unidad da 20 entradas planas, comprar 3
-  o mas da 70 planas (no 20×3=60). `variantQuantityTiers` tiene la
-  prioridad mas alta de las cuatro reglas.
-- `quantityTiers`: entradas bono segun la cantidad TOTAL de unidades del
-  pedido, sin importar el producto (se usa el umbral mas alto alcanzado,
-  no se suman todos). Se suma aparte de cualquiera de las reglas anteriores.
+- **productTitle**: el nombre del producto **exactamente como aparece en
+  Shopify** (el matching ignora mayusculas/minusculas y espacios de sobra,
+  pero el texto debe corresponder al titulo del producto).
+- **entriesPerUnit**: cuantas entradas da ese producto **por cada unidad
+  comprada**. Ejemplos:
+  - `1` → comprar 3 unidades da 3 entradas.
+  - `20` → comprar 2 unidades da 40 entradas.
+- Un producto que no aparezca en la tabla no genera entradas.
 
-Orden de prioridad por line item: `variantQuantityTiers` > `productQuantityTiers`
-> `byVariantId` > `byProductId`. Si ninguna matchea, ese producto no genera
-entradas.
+No hay que redeployar ni tocar nada: el servicio lee la pestaña `rules` en
+vivo cada vez que llega un pedido.
 
-Para obtener los `product_id` / `variant_id` reales: Shopify Admin →
-Productos → abre el producto → el ID aparece en la URL
-(`admin/products/<product_id>`); para variantes, en el Admin API o
-inspeccionando el JSON del producto.
+> Cuidado: si renombras un producto en Shopify, actualiza tambien su fila en
+> la pestaña `rules`, o ese producto dejara de otorgar entradas (el match es
+> por nombre). Haz siempre un pedido de prueba tras cambiar productos.
 
 ## Configurar la app en Shopify (Dev Dashboard)
 
@@ -98,13 +88,11 @@ tienda como esta.
    - **Preferences URL**: vacío.
    - **Webhooks API version**: deja la más reciente.
    - Click **Release** para activar la versión.
-3. En **Settings** de la app → busca las **API credentials / Client
-   credentials** → copia el **Client secret**. Ese valor va en
-   `SHOPIFY_WEBHOOK_SECRET` en tu `.env`.
-4. Instala la app en la tienda (debería quedar instalada automáticamente al
-   crear la versión en una tienda de desarrollo propia, o pide instalación
-   manual si es la tienda de producción del cliente).
-5. Crea el webhook `orders/paid` apuntando a tu servidor público:
+3. En **Settings** de la app → **Credentials** → copia el **Secret**. Ese
+   valor va en `SHOPIFY_WEBHOOK_SECRET`. (No se necesita ningun scope de
+   Admin API ni Admin API token: el servicio no consulta nada de vuelta a
+   Shopify, solo recibe el webhook y lee las reglas del Google Sheet.)
+4. Crea el webhook `orders/paid` apuntando a tu servidor público:
    - Vía Admin API (GraphQL `webhookSubscriptionCreate` o REST
      `POST /admin/api/2024-XX/webhooks.json`), formato `json`,
      `address: https://TU-DOMINIO/webhooks/orders-paid`.

@@ -18,7 +18,7 @@ function resolveCustomerName(order) {
 async function generateEntriesForOrder(order) {
   const orderId = String(order.id);
 
-  const grants = evaluateOrder(order);
+  const grants = await evaluateOrder(order);
   if (grants.length === 0) {
     return { created: [], skipped: true, reason: "no_matching_rules" };
   }
